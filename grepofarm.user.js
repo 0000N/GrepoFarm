@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         GrepoFarm
-// @version      1.0.5
+// @version      1.0.6
 // @description  Farm villages Grepolis — API directe
 // @match        http://*.grepolis.com/game/*
 // @match        https://*.grepolis.com/game/*
@@ -126,7 +126,7 @@
         /* BUILD */
         var mh=''; for (var i=0;i<MODES.length;i++) mh+='<span class="farm-btn" data-base="'+MODES[i][1]+'" data-boost="'+MODES[i][2]+'">'+MODES[i][0]+'</span>';
 
-        var p = $('<div id="farm_panel"><div id="farm_header"><b style="color:#ffcc00">GrepoFarm</b><span style="font-size:11px;color:#888">v1.0.5</span><div id="farm_toggle"></div></div><div id="farm_body">'+mh+'<div id="farm_timer">Arrêté</div><div id="farm_cap"></div></div></div>');
+        var p = $('<div id="farm_panel"><div id="farm_header"><b style="color:#ffcc00">GrepoFarm</b><span style="font-size:11px;color:#888">v1.0.6</span><div id="farm_toggle"></div></div><div id="farm_body">'+mh+'<div id="farm_timer">Arrêté</div><div id="farm_cap"></div></div></div>');
         $('body').append(p);
 
         $('#farm_header').click(function(){ active?stp():sta(); });
