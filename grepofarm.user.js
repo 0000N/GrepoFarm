@@ -1,188 +1,168 @@
 // ==UserScript==
 // @name         GrepoFarm
-// @version      1.0.0
+// @version      1.0.2
 // @description  Farm villages automatique Grepolis
 // @match        http://*.grepolis.com/game/*
 // @match        https://*.grepolis.com/game/*
-// @icon         https://raw.githubusercontent.com/0000N/GrepoFarm/main/farm.png
 // ==/UserScript==
 
 (function() {
+    'use strict';
+    var uw = typeof unsafeWindow != 'undefined' ? unsafeWindow : window;
+    var $ = uw.$;
 
-'use strict';
-const uw = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
+    if (!$) return;
 
-/* ======================== CSS ======================== */
-const CSS = `
-#farm_panel{position:fixed;top:60px;right:10px;width:280px;background:#12121a;
- border:1px solid #333;border-radius:5px;z-index:9999;color:#ddd;
- font:13px Arial;box-shadow:0 0 15px rgba(0,0,0,.7)}
-#farm_header{background:#1a1a2e;padding:8px 10px;cursor:pointer;display:flex;
- justify-content:space-between;align-items:center;border-radius:5px 5px 0 0}
-#farm_header.on{background:#2a2a10}
-#farm_body{padding:8px}
-.farm-btn{display:inline-block;padding:4px 8px;margin:2px;background:#25253a;
- color:#ccc;border:1px solid #3a3a55;border-radius:3px;font-size:11px;cursor:pointer}
-.farm-btn:hover{background:#303050}
-.farm-btn.on{background:#ffcc00;color:#000;font-weight:bold}
-#farm_timer{padding:6px 0;font-size:13px;text-align:center}
-#farm_toggle{width:14px;height:14px;border-radius:50%;background:#555;display:inline-block}
-#farm_toggle.on{background:#4caf50;box-shadow:0 0 6px #4caf50}
-`;
+    /* === CSS === */
+    $('<style>').text(
+        '#farm_panel{position:fixed;top:60px;right:10px;width:280px;background:#12121a;'+
+        'border:1px solid #333;border-radius:5px;z-index:9999;color:#ddd;'+
+        'font:13px Arial;box-shadow:0 0 15px rgba(0,0,0,.7)}'+
+        '#farm_header{background:#1a1a2e;padding:8px 10px;cursor:pointer;display:flex;'+
+        'justify-content:space-between;align-items:center;border-radius:5px 5px 0 0}'+
+        '#farm_header.on{background:#2a2a10}'+
+        '#farm_body{padding:8px}'+
+        '.farm-btn{display:inline-block;padding:4px 8px;margin:2px;background:#25253a;'+
+        'color:#ccc;border:1px solid #3a3a55;border-radius:3px;font-size:11px;cursor:pointer}'+
+        '.farm-btn:hover{background:#303050}'+
+        '.farm-btn.on{background:#ffcc00;color:#000;font-weight:bold}'+
+        '#farm_timer{padding:6px 0;font-size:13px;text-align:center}'+
+        '#farm_toggle{width:14px;height:14px;border-radius:50%;background:#555;display:inline-block}'+
+        '#farm_toggle.on{background:#4caf50;box-shadow:0 0 6px #4caf50}'
+    ).appendTo('head');
 
-$('<style>').text(CSS).appendTo('head');
+    var active = false;
+    var modeBase = 300, modeBoost = 600;
+    var nextSec = 0, timer = null;
+    var MODES = [
+        ['5 min',300,600],['10 min',600,1200],['15 min',900,1800],
+        ['20 min',1200,2400],['30 min',1800,3600],['45 min',2700,5400]
+    ];
 
-/* ======================== FARM ======================== */
-const Farm = {
-    active: false,
-    modeBase: 300,
-    modeBoost: 600,
-    nextSec: 0,
-    timer: null,
+    function getNextSec() {
+        var models = (uw.MM && uw.MM.getCollections && uw.MM.getCollections().FarmTownPlayerRelation[0].models) || [];
+        var counts = {};
+        for (var i=0; i<models.length; i++) {
+            var lt = models[i].attributes.lootable_at;
+            if (lt) counts[lt] = (counts[lt]||0)+1;
+        }
+        var best=0, val=0;
+        for (var t in counts) { if (counts[t]>=val) { best=t; val=counts[t]; } }
+        var s = best - Math.floor(Date.now()/1000);
+        return s>0?s:0;
+    }
 
-    modes: [
-        ['5 min',  300,  600],
-        ['10 min', 600,  1200],
-        ['15 min', 900,  1800],
-        ['20 min', 1200, 2400],
-        ['30 min', 1800, 3600],
-        ['45 min', 2700, 5400],
-    ],
-
-    start() {
-        this.active = true;
-        this.timer = setInterval(() => this.tick(), 1000);
-        this._refresh();
-    },
-
-    stop() {
-        this.active = false;
-        clearInterval(this.timer);
-        this.timer = null;
-        this._refresh();
-    },
-
-    setMode(base, boost) {
-        this.modeBase = base;
-        this.modeBoost = boost;
-        this._refresh();
-    },
-
-    _refresh() {
-        const t = $('#farm_toggle');
-        const h = $('#farm_header');
-        if (this.active) { t.addClass('on'); h.addClass('on'); }
-        else { t.removeClass('on'); h.removeClass('on'); }
-
-        // Buttons
-        $('#farm_body .farm-btn').each((i, el) => {
-            const $el = $(el);
-            $el.toggleClass('on', $el.data('base') === this.modeBase);
-        });
-
-        // Timer text
-        const ti = $('#farm_timer');
-        if (!this.active) { ti.text('⏸ Arrêté').css('color','#888'); return; }
-        if (this.nextSec <= 0) { ti.text('⚡ Collecte...').css('color','#4fc3f7'); return; }
-        const m = Math.floor(this.nextSec/60), s = this.nextSec%60;
-        ti.text(`⏳ ${m}m ${s}s`).css('color','#ffcc00');
-    },
-
-    async tick() {
-        this.nextSec = this._getNextSec();
-        if (this.nextSec > 0) { this._refresh(); return; }
-
-        const polis = this._genList();
-        if (!polis.length) { this._refresh(); return; }
-
-        if ($('.botcheck').length || $('#recaptcha_window').length) { this._refresh(); return; }
-
-        // Simulate user actions
-        await this._get('farm_town_overviews', 'index');
-        await this._sleep(800);
-        await this._get('farm_town_overviews', 'get_farm_towns_from_multiple_towns', { town_ids: polis });
-        await this._sleep(1200);
-        await this._post('farm_town_overviews', 'claim_loads_multiple', {
-            towns: polis,
-            time_option_base: this.modeBase,
-            time_option_booty: this.modeBoost,
-            claim_factor: 'normal',
-        });
-        // Refresh map timers
-        setTimeout(() => { try { uw.WMap?.removeFarmTownLootCooldownIconAndRefreshLootTimers(); } catch(e){} }, 2000);
-
-        this.nextSec = this._getNextSec();
-        this._refresh();
-    },
-
-    _genList() {
-        const islands = {};
-        const towns = uw.MM?.getOnlyCollectionByName?.('Town')?.models || [];
-        for (const t of towns) {
-            const a = t.attributes;
+    function genList() {
+        var towns = (uw.MM && uw.MM.getOnlyCollectionByName && uw.MM.getOnlyCollectionByName('Town').models) || [];
+        var islands = {};
+        for (var i=0; i<towns.length; i++) {
+            var a = towns[i].attributes;
             if (a.on_small_island) continue;
-            const r = uw.ITowns?.getTown?.(a.id)?.resources?.() || {};
-            const p = Math.min(r.wood||0, r.stone||0, r.iron||0) / (r.storage||1);
-            if (!islands[a.island_id] || p < islands[a.island_id].p) {
-                islands[a.island_id] = { id: a.id, p };
+            var r = (uw.ITowns && uw.ITowns.getTown && uw.ITowns.getTown(a.id) && uw.ITowns.getTown(a.id).resources()) || {};
+            var p = Math.min(r.wood||0, r.stone||0, r.iron||0) / (r.storage||1);
+            if (!islands[a.island_id] || p < islands[a.island_id][1]) {
+                islands[a.island_id] = [a.id, p];
             }
         }
-        return Object.values(islands).map(i => i.id);
-    },
+        var list = [];
+        for (var k in islands) list.push(islands[k][0]);
+        return list;
+    }
 
-    _getNextSec() {
-        const m = uw.MM?.getCollections?.()?.FarmTownPlayerRelation?.[0]?.models || [];
-        const c = {};
-        for (const x of m) { const lt = x.attributes?.lootable_at; if (lt) c[lt]=(c[lt]||0)+1; }
-        let best=0, val=0;
-        for (const t in c) { if (c[t]>=val) { best=t; val=c[t]; } }
-        const s = best - Math.floor(Date.now()/1000);
-        return s>0?s:0;
-    },
+    function refresh() {
+        var t = $('#farm_toggle');
+        var h = $('#farm_header');
+        if (active) { t.addClass('on'); h.addClass('on'); }
+        else { t.removeClass('on'); h.removeClass('on'); }
 
-    _sleep(ms) { return new Promise(r => setTimeout(r, ms)); },
+        $('#farm_body .farm-btn').each(function() {
+            $(this).toggleClass('on', parseInt($(this).data('base')) === modeBase);
+        });
 
-    _get(ctrl, action, data) {
-        return new Promise(r => uw.gpAjax?.ajaxGet?.(ctrl, action, data||{}, false, () => r()));
-    },
+        var ti = $('#farm_timer');
+        if (!active) { ti.text('Arrêté').css('color','#888'); return; }
+        if (nextSec <= 0) { ti.text('Collecte...').css('color','#4fc3f7'); return; }
+        var m = Math.floor(nextSec/60), s = nextSec%60;
+        ti.text('Prochaine: '+m+'m '+s+'s').css('color','#ffcc00');
+    }
 
-    _post(ctrl, action, data) {
-        return new Promise(r => uw.gpAjax?.ajaxPost?.(ctrl, action, data, false, () => r()));
-    },
-};
+    function stop() {
+        active = false;
+        clearInterval(timer); timer = null;
+        refresh();
+    }
 
-/* ======================== UI ======================== */
-function buildPanel() {
-    const $panel = $(`
-<div id="farm_panel">
-  <div id="farm_header">
-    <b style="color:#ffcc00">🌾 GrepoFarm</b>
-    <span style="font-size:11px;color:#888">v1.0</span>
-    <div id="farm_toggle"></div>
-  </div>
-  <div id="farm_body">
-    ${Farm.modes.map(m => 
-      `<span class="farm-btn" data-base="${m[1]}" data-boost="${m[2]}">${m[0]}</span>`
-    ).join('')}
-    <div id="farm_timer">⏸ Arrêté</div>
-  </div>
-</div>`);
+    function start() {
+        active = true;
+        timer = setInterval(tick, 1000);
+        tick();
+    }
 
-    $panel.find('#farm_header').click(() => Farm.active ? Farm.stop() : Farm.start());
-    $panel.find('.farm-btn').click(function() {
-        Farm.setMode(parseInt($(this).data('base')), parseInt($(this).data('boost')));
-    });
+    function tick() {
+        if (!active) return;
+        nextSec = getNextSec();
+        if (nextSec > 0) { refresh(); return; }
+        if ($('.botcheck').length || $('#recaptcha_window').length) { refresh(); return; }
 
-    $('body').append($panel);
-    Farm._refresh();
-}
+        var polis = genList();
+        if (!polis.length) { refresh(); return; }
 
-/* ======================== INIT ======================== */
-const loader = setInterval(() => {
-    if ($('#loader').length > 0) return;
-    clearInterval(loader);
+        nextSec = 9999; refresh();
 
-    buildPanel();
-}, 200);
+        (uw.gpAjax && uw.gpAjax.ajaxGet && uw.gpAjax.ajaxGet('farm_town_overviews', 'index', {}, false, function() {
+            setTimeout(function() {
+                (uw.gpAjax && uw.gpAjax.ajaxGet && uw.gpAjax.ajaxGet('farm_town_overviews', 'get_farm_towns_from_multiple_towns', {town_ids: polis}, false, function() {
+                    setTimeout(function() {
+                        (uw.gpAjax && uw.gpAjax.ajaxPost && uw.gpAjax.ajaxPost('farm_town_overviews', 'claim_loads_multiple', {
+                            towns: polis,
+                            time_option_base: modeBase,
+                            time_option_booty: modeBoost,
+                            claim_factor: 'normal'
+                        }, false, function() {}));
+                        setTimeout(function() {
+                            try { uw.WMap && uw.WMap.removeFarmTownLootCooldownIconAndRefreshLootTimers(); } catch(e){}
+                        }, 2000);
+                    }, 1200);
+                }));
+            }, 800);
+        }));
+    }
+
+    function setMode(base, boost) {
+        modeBase = base; modeBoost = boost;
+        refresh();
+    }
+
+    /* === BUILD UI === */
+    var load = setInterval(function() {
+        if ($('#loader').length > 0) return;
+        clearInterval(load);
+
+        var modesHtml = '';
+        for (var i=0; i<MODES.length; i++) {
+            modesHtml += '<span class="farm-btn" data-base="'+MODES[i][1]+'" data-boost="'+MODES[i][2]+'">'+MODES[i][0]+'</span>';
+        }
+
+        var panel = $(
+            '<div id="farm_panel">'+
+            '<div id="farm_header">'+
+            '<b style="color:#ffcc00">GrepoFarm</b>'+
+            '<span style="font-size:11px;color:#888">v1.0.2</span>'+
+            '<div id="farm_toggle"></div>'+
+            '</div>'+
+            '<div id="farm_body">'+modesHtml+
+            '<div id="farm_timer">Arrêté</div>'+
+            '</div>'+
+            '</div>'
+        );
+
+        $('#farm_header', panel).click(function() { active ? stop() : start(); });
+        $('.farm-btn', panel).click(function() {
+            setMode(parseInt($(this).data('base')), parseInt($(this).data('boost')));
+        });
+
+        $('body').append(panel);
+        refresh();
+    }, 200);
 
 })();
