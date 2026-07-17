@@ -1,236 +1,218 @@
 // ==UserScript==
 // @name         GrepoFarm
-// @version      1.0.3
-// @description  Farm villages automatique Grepolis (capitaine ou pas)
+// @version      1.0.4
+// @description  Farm villages API directe
 // @match        http://*.grepolis.com/game/*
 // @match        https://*.grepolis.com/game/*
+// @grant        none
 // ==/UserScript==
 
 (function() {
-    'use strict';
     var uw = typeof unsafeWindow != 'undefined' ? unsafeWindow : window;
-    var $ = uw.$;
-    if (!$) return;
+    var D = document, $;
 
-    $('<style>').text(
-        '#farm_panel{position:fixed;top:60px;right:10px;width:280px;background:#12121a;'+
-        'border:1px solid #333;border-radius:5px;z-index:9999;color:#ddd;'+
-        'font:13px Arial;box-shadow:0 0 15px rgba(0,0,0,.7)}'+
-        '#farm_header{background:#1a1a2e;padding:8px 10px;cursor:pointer;display:flex;'+
-        'justify-content:space-between;align-items:center;border-radius:5px 5px 0 0}'+
-        '#farm_header.on{background:#2a2a10}'+
-        '#farm_body{padding:8px}'+
-        '.farm-btn{display:inline-block;padding:4px 8px;margin:2px;background:#25253a;'+
-        'color:#ccc;border:1px solid #3a3a55;border-radius:3px;font-size:11px;cursor:pointer}'+
-        '.farm-btn:hover{background:#303050}'+
-        '.farm-btn.on{background:#ffcc00;color:#000;font-weight:bold}'+
-        '#farm_timer{padding:6px 0;font-size:13px;text-align:center}'+
-        '#farm_toggle{width:14px;height:14px;border-radius:50%;background:#555;display:inline-block}'+
-        '#farm_toggle.on{background:#4caf50;box-shadow:0 0 6px #4caf50}'+
-        '#farm_cap{font-size:10px;color:#888;padding:4px 0;text-align:center}'
-    ).appendTo('head');
+    function $(s, p) { return (p||D).querySelector(s); }
+    function $$(s, p) { return (p||D).querySelectorAll(s); }
 
-    var active = false;
-    var modeBase = 300, modeBoost = 600;
-    var nextSec = 0, timer = null;
-    var running = false;
+    /* === WAIT FOR GAME === */
+    var wait = setInterval(function() {
+        if (D.getElementById('loader')) return;
+        if (!uw.$ || !uw.gpAjax || !uw.MM || !uw.ITowns) return;
+        clearInterval(wait);
+        $ = uw.$;
+        init();
+    }, 300);
 
-    var MODES = [
-        ['5 min',300,600],['10 min',600,1200],['15 min',900,1800],
-        ['20 min',1200,2400],['30 min',1800,3600],['45 min',2700,5400]
-    ];
+    function init() {
+        /* === CSS === */
+        $('<style>').text(
+            '#farm_panel{position:fixed;top:60px;right:10px;width:280px;background:#12121a;'+
+            'border:1px solid #333;border-radius:5px;z-index:9999;color:#ddd;'+
+            'font:13px Arial;box-shadow:0 0 15px rgba(0,0,0,.7)}'+
+            '#farm_header{background:#1a1a2e;padding:8px 10px;border-radius:5px 5px 0 0;'+
+            'display:flex;justify-content:space-between;align-items:center;cursor:pointer}'+
+            '#farm_header.on{background:#2a2a10}'+
+            '#farm_body{padding:8px}'+
+            '.farm-btn{display:inline-block;padding:4px 8px;margin:2px;background:#25253a;'+
+            'color:#ccc;border:1px solid #3a3a55;border-radius:3px;font-size:11px;cursor:pointer}'+
+            '.farm-btn:hover{background:#303050}'+
+            '.farm-btn.on{background:#ffcc00;color:#000;font-weight:bold}'+
+            '#farm_timer{padding:6px 0;font-size:13px;text-align:center}'+
+            '#farm_toggle{width:14px;height:14px;border-radius:50%;background:#555}'+
+            '#farm_toggle.on{background:#4caf50;box-shadow:0 0 6px #4caf50}'+
+            '#farm_cap{font-size:10px;color:#888;padding:2px 0;text-align:center}'
+        ).appendTo('head');
 
-    function hasCaptain() {
-        return !!(uw.GameDataPremium && uw.GameDataPremium.isAdvisorActivated &&
-            uw.GameDataPremium.isAdvisorActivated('captain'));
-    }
+        /* === STATE === */
+        var active = false, running = false;
+        var modeBase = 300, modeBoost = 600;
+        var nextSec = 0, timer = null;
+        var MODES = [
+            ['5 min',300,600],['10 min',600,1200],['15 min',900,1800],
+            ['20 min',1200,2400],['30 min',1800,3600],['45 min',2700,5400]
+        ];
 
-    function getNextSec() {
-        var models = (uw.MM && uw.MM.getCollections && uw.MM.getCollections().FarmTownPlayerRelation[0].models) || [];
-        var counts = {};
-        for (var i=0; i<models.length; i++) {
-            var lt = models[i].attributes.lootable_at;
-            if (lt) counts[lt] = (counts[lt]||0)+1;
+        function hasCaptain() {
+            try { return uw.GameDataPremium.isAdvisorActivated('captain'); }
+            catch(e) { return false; }
         }
-        var best=0, val=0;
-        for (var t in counts) { if (counts[t]>=val) { best=t; val=counts[t]; } }
-        var s = best - Math.floor(Date.now()/1000);
-        return s>0?s:0;
-    }
 
-    function genList() {
-        var towns = (uw.MM && uw.MM.getOnlyCollectionByName && uw.MM.getOnlyCollectionByName('Town').models) || [];
-        var islands = {};
-        for (var i=0; i<towns.length; i++) {
-            var a = towns[i].attributes;
-            if (a.on_small_island) continue;
-            var r = (uw.ITowns && uw.ITowns.getTown && uw.ITowns.getTown(a.id) && uw.ITowns.getTown(a.id).resources()) || {};
-            var p = Math.min(r.wood||0, r.stone||0, r.iron||0) / (r.storage||1);
-            if (!islands[a.island_id] || p < islands[a.island_id][1]) {
-                islands[a.island_id] = [a.id, p];
+        function genList() {
+            var towns = uw.MM.getOnlyCollectionByName('Town').models;
+            var islands = {}, i, a, r, p, list = [];
+            for (i=0; i<towns.length; i++) {
+                a = towns[i].attributes;
+                if (a.on_small_island) continue;
+                r = uw.ITowns.getTown(a.id).resources();
+                p = Math.min(r.wood,r.stone,r.iron) / r.storage;
+                if (!islands[a.island_id] || p < islands[a.island_id][1])
+                    islands[a.island_id] = [a.id, p];
+            }
+            for (var k in islands) list.push(islands[k][0]);
+            return list;
+        }
+
+        function getNextSec() {
+            var m = uw.MM.getCollections().FarmTownPlayerRelation[0].models;
+            var c = {}, i, lt, best=0, val=0;
+            for (i=0; i<m.length; i++) {
+                lt = m[i].attributes.lootable_at;
+                if (lt) c[lt] = (c[lt]||0)+1;
+            }
+            for (var t in c) if (c[t]>=val) { best=t; val=c[t]; }
+            var s = best - Math.floor(Date.now()/1000);
+            return s>0?s:0;
+        }
+
+        function refresh() {
+            $('#farm_toggle').className = 'farm_toggle' + (active ? ' on' : '');
+            $('#farm_header').className = 'farm_header' + (active ? ' on' : '');
+
+            $$('.farm-btn').forEach(function(b) {
+                b.className = 'farm-btn' + (parseInt(b.dataset.base) === modeBase ? ' on' : '');
+            });
+
+            var t = $('#farm_timer');
+            if (!active) { t.textContent = 'Arrêté'; t.style.color = '#888'; }
+            else if (running) { t.textContent = 'Collecte...'; t.style.color = '#4fc3f7'; }
+            else if (nextSec <= 0) { t.textContent = 'Prête'; t.style.color = '#4caf50'; }
+            else { var m=Math.floor(nextSec/60), s=nextSec%60;
+                   t.textContent = 'Prochaine: '+m+'m '+s+'s'; t.style.color = '#ffcc00'; }
+
+            $('#farm_cap').textContent = hasCaptain() ? 'Capitaine: actif' : 'Capitaine: absent';
+        }
+
+        function stop() {
+            active = false; clearInterval(timer); timer = null; refresh();
+        }
+
+        function start() {
+            active = true; timer = setInterval(tick, 1000); tick();
+        }
+
+        function tick() {
+            if (!active || running) return;
+            nextSec = getNextSec();
+            if (nextSec > 0) { refresh(); return; }
+            if ($('.botcheck') || $('#recaptcha_window')) { refresh(); return; }
+
+            running = true; refresh();
+
+            var polis = genList();
+            if (!polis.length) { running=false; refresh(); return; }
+
+            if (hasCaptain()) {
+                // API DIRECTE — pas de fake opening
+                uw.gpAjax.ajaxPost('farm_town_overviews', 'claim_loads_multiple', {
+                    towns: polis,
+                    time_option_base: modeBase,
+                    time_option_booty: modeBoost,
+                    claim_factor: 'normal'
+                }, false, function() {
+                    setTimeout(function() {
+                        try { uw.WMap.removeFarmTownLootCooldownIconAndRefreshLootTimers(); } catch(e){}
+                        running = false;
+                        nextSec = getNextSec();
+                        refresh();
+                    }, 1500);
+                });
+            } else {
+                claimOneByOne(polis, 0);
             }
         }
-        var list = [];
-        for (var k in islands) list.push(islands[k][0]);
-        return list;
-    }
 
-    function refresh() {
-        var t = $('#farm_toggle');
-        var h = $('#farm_header');
-        if (active) { t.addClass('on'); h.addClass('on'); }
-        else { t.removeClass('on'); h.removeClass('on'); }
-
-        $('#farm_body .farm-btn').each(function() {
-            $(this).toggleClass('on', parseInt($(this).data('base')) === modeBase);
-        });
-
-        var ti = $('#farm_timer');
-        if (!active) { ti.text('Arrêté').css('color','#888'); }
-        else if (running) { ti.text('Collecte...').css('color','#4fc3f7'); }
-        else if (nextSec <= 0) { ti.text('Prête').css('color','#4caf50'); }
-        else { var m=Math.floor(nextSec/60), s=nextSec%60; ti.text('Prochaine: '+m+'m '+s+'s').css('color','#ffcc00'); }
-
-        $('#farm_cap').text(hasCaptain() ? 'Capitaine: actif (collecte massive)' : 'Capitaine: absent (1 par 1)');
-    }
-
-    function stop() {
-        active = false;
-        clearInterval(timer); timer = null;
-        refresh();
-    }
-
-    function start() {
-        active = true;
-        running = false;
-        timer = setInterval(tick, 1000);
-        tick();
-    }
-
-    function tick() {
-        if (!active || running) return;
-        nextSec = getNextSec();
-        if (nextSec > 0) { refresh(); return; }
-        if ($('.botcheck').length || $('#recaptcha_window').length) { refresh(); return; }
-
-        running = true; refresh();
-
-        if (hasCaptain()) {
-            claimCaptain();
-        } else {
-            claimSingle();
-        }
-    }
-
-    function claimCaptain() {
-        var polis = genList();
-        if (!polis.length) { running=false; refresh(); return; }
-
-        uw.gpAjax.ajaxGet('farm_town_overviews', 'index', {}, false, function() {
-            setTimeout(function() {
-                uw.gpAjax.ajaxGet('farm_town_overviews', 'get_farm_towns_from_multiple_towns', {town_ids: polis}, false, function() {
-                    setTimeout(function() {
-                        uw.gpAjax.ajaxPost('farm_town_overviews', 'claim_loads_multiple', {
-                            towns: polis,
-                            time_option_base: modeBase,
-                            time_option_booty: modeBoost,
-                            claim_factor: 'normal'
-                        }, false, function() {
-                            setTimeout(function() {
-                                try { uw.WMap.removeFarmTownLootCooldownIconAndRefreshLootTimers(); } catch(e){}
-                                running = false;
-                                nextSec = getNextSec();
-                                refresh();
-                            }, 2000);
-                        });
-                    }, 1200);
-                });
-            }, 800);
-        });
-    }
-
-    function claimSingle() {
-        var polis = genList();
-        if (!polis.length) { running=false; refresh(); return; }
-
-        var farmTowns = (uw.MM && uw.MM.getOnlyCollectionByName && uw.MM.getOnlyCollectionByName('FarmTown').models) || [];
-        var relations = (uw.MM && uw.MM.getOnlyCollectionByName && uw.MM.getOnlyCollectionByName('FarmTownPlayerRelation').models) || [];
-        var now = Math.floor(Date.now()/1000);
-
-        function claimNext(pIdx) {
-            if (pIdx >= polis.length) {
-                try { uw.WMap.removeFarmTownLootCooldownIconAndRefreshLootTimers(); } catch(e){}
-                running = false;
-                nextSec = getNextSec();
-                refresh();
+        function claimOneByOne(polis, idx) {
+            if (idx >= polis.length) {
+                setTimeout(function() {
+                    try { uw.WMap.removeFarmTownLootCooldownIconAndRefreshLootTimers(); } catch(e){}
+                    running = false;
+                    nextSec = getNextSec();
+                    refresh();
+                }, 500);
                 return;
             }
-            var townId = polis[pIdx];
-            var town = uw.ITowns && uw.ITowns.getTown && uw.ITowns.getTown(townId);
-            if (!town) { claimNext(pIdx+1); return; }
-            var x = town.getIslandCoordinateX();
-            var y = town.getIslandCoordinateY();
 
-            var found = false;
-            for (var fi=0; fi<farmTowns.length; fi++) {
-                var ft = farmTowns[fi].attributes;
-                if (ft.island_x != x || ft.island_y != y) continue;
-                for (var ri=0; ri<relations.length; ri++) {
-                    var rel = relations[ri].attributes;
-                    if (ft.id != rel.farm_town_id) continue;
-                    if (rel.relation_status !== 1) continue;
-                    if (rel.lootable_at !== null && now < rel.lootable_at) continue;
+            var tid = polis[idx];
+            var town = uw.ITowns.getTown(tid);
+            if (!town) { claimOneByOne(polis, idx+1); return; }
+            var x = town.getIslandCoordinateX(), y = town.getIslandCoordinateY();
+            var ft = uw.MM.getOnlyCollectionByName('FarmTown').models;
+            var rel = uw.MM.getOnlyCollectionByName('FarmTownPlayerRelation').models;
+            var now = Math.floor(Date.now()/1000);
+
+            for (var fi=0; fi<ft.length; fi++) {
+                if (ft[fi].attributes.island_x != x || ft[fi].attributes.island_y != y) continue;
+                for (var ri=0; ri<rel.length; ri++) {
+                    if (ft[fi].attributes.id != rel[ri].attributes.farm_town_id) continue;
+                    if (rel[ri].attributes.relation_status !== 1) continue;
+                    if (rel[ri].attributes.lootable_at !== null && now < rel[ri].attributes.lootable_at) continue;
+
                     uw.gpAjax.ajaxPost('frontend_bridge', 'execute', {
-                        model_url: 'FarmTownPlayerRelation/'+rel.id,
+                        model_url: 'FarmTownPlayerRelation/'+rel[ri].id,
                         action_name: 'claim',
-                        arguments: { farm_town_id: ft.id, type: 'resources' },
-                        town_id: townId
+                        arguments: { farm_town_id: ft[fi].attributes.id, type: 'resources' },
+                        town_id: tid
                     }, false, function(){});
-                    found = true;
-                    break;
+                    setTimeout(function() { claimOneByOne(polis, idx+1); }, 500);
+                    return;
                 }
-                if (found) break;
             }
-            setTimeout(function() { claimNext(pIdx+1); }, 600);
+            claimOneByOne(polis, idx+1);
         }
-        claimNext(0);
-    }
 
-    function setMode(base, boost) {
-        modeBase = base; modeBoost = boost;
-        refresh();
-    }
+        function setMode(base, boost) {
+            modeBase = base; modeBoost = boost; refresh();
+        }
 
-    var load = setInterval(function() {
-        if ($('#loader').length > 0) return;
-        clearInterval(load);
-
+        /* === BUILD PANEL === */
         var modesHtml = '';
-        for (var i=0; i<MODES.length; i++) {
-            modesHtml += '<span class="farm-btn" data-base="'+MODES[i][1]+'" data-boost="'+MODES[i][2]+'">'+MODES[i][0]+'</span>';
-        }
+        MODES.forEach(function(m) {
+            modesHtml += '<span class="farm-btn" data-base="'+m[1]+'" data-boost="'+m[2]+'">'+m[0]+'</span>';
+        });
 
-        var panel = $(
-            '<div id="farm_panel">'+
+        var panel = document.createElement('div');
+        panel.id = 'farm_panel';
+        panel.innerHTML =
             '<div id="farm_header">'+
             '<b style="color:#ffcc00">GrepoFarm</b>'+
-            '<span style="font-size:11px;color:#888">v1.0.3</span>'+
+            '<span style="font-size:11px;color:#888">v1.0.4</span>'+
             '<div id="farm_toggle"></div>'+
             '</div>'+
             '<div id="farm_body">'+modesHtml+
             '<div id="farm_timer">Arrêté</div>'+
             '<div id="farm_cap"></div>'+
-            '</div>'+
-            '</div>'
-        );
+            '</div>';
 
-        $('#farm_header', panel).click(function() { active ? stop() : start(); });
-        $('.farm-btn', panel).click(function() {
-            setMode(parseInt($(this).data('base')), parseInt($(this).data('boost')));
+        document.body.appendChild(panel);
+
+        /* === HANDLERS === */
+        $('#farm_header').addEventListener('click', function() { active ? stop() : start(); });
+        $$('.farm-btn').forEach(function(b) {
+            b.addEventListener('click', function() {
+                setMode(parseInt(b.dataset.base), parseInt(b.dataset.boost));
+            });
         });
 
-        $('body').append(panel);
         refresh();
-    }, 200);
-
+    }
 })();
