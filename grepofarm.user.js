@@ -95,7 +95,7 @@ const Farm = {
         const polis = this._genList();
         if (!polis.length) { this._refresh(); return; }
 
-        if (Game.isCaptchaActive()) { this._refresh(); return; }
+        if ($('.botcheck').length || $('#recaptcha_window').length) { this._refresh(); return; }
 
         // Simulate user actions
         await this._get('farm_town_overviews', 'index');
@@ -153,21 +153,27 @@ const Farm = {
 
 /* ======================== UI ======================== */
 function buildPanel() {
-    const html = `
+    const $panel = $(`
 <div id="farm_panel">
-  <div id="farm_header" onclick="window.__grepoFarm.toggle()">
+  <div id="farm_header">
     <b style="color:#ffcc00">🌾 GrepoFarm</b>
     <span style="font-size:11px;color:#888">v1.0</span>
     <div id="farm_toggle"></div>
   </div>
   <div id="farm_body">
     ${Farm.modes.map(m => 
-      `<span class="farm-btn" data-base="${m[1]}" onclick="window.__grepoFarm.setMode(${m[1]},${m[2]})">${m[0]}</span>`
+      `<span class="farm-btn" data-base="${m[1]}" data-boost="${m[2]}">${m[0]}</span>`
     ).join('')}
     <div id="farm_timer">⏸ Arrêté</div>
   </div>
-</div>`;
-    $('body').append(html);
+</div>`);
+
+    $panel.find('#farm_header').click(() => Farm.active ? Farm.stop() : Farm.start());
+    $panel.find('.farm-btn').click(function() {
+        Farm.setMode(parseInt($(this).data('base')), parseInt($(this).data('boost')));
+    });
+
+    $('body').append($panel);
     Farm._refresh();
 }
 
@@ -175,11 +181,6 @@ function buildPanel() {
 const loader = setInterval(() => {
     if ($('#loader').length > 0) return;
     clearInterval(loader);
-
-    window.__grepoFarm = {
-        toggle: () => Farm.active ? Farm.stop() : Farm.start(),
-        setMode: (base, boost) => Farm.setMode(base, boost),
-    };
 
     buildPanel();
 }, 200);
