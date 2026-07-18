@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         GrepoFarm
-// @version      1.0.10
+// @version      1.1.0
 // @match        http://*.grepolis.com/game/*
 // @match        https://*.grepolis.com/game/*
 // @grant        none
@@ -59,15 +59,30 @@
             var list=[]; for (var k in islands) list.push(islands[k][0]); return list;
         }
 
-        function nextLootSec() {
-            var m=uw.MM.getCollections().FarmTownPlayerRelation[0].models, c={}, i, lt, b=0, v=0;
-            for (i=0; i<m.length; i++) { lt=m[i].attributes.lootable_at; if (lt) c[lt]=(c[lt]||0)+1; }
-            for (var t in c) if (c[t]>=v) { b=t; v=c[t]; }
-            var s=b-Math.floor(Date.now()/1000); return s>0?s:0;
-        }
-
         function ajaxGet(c,a,d) { return new Promise(function(r) { uw.gpAjax.ajaxGet(c,a,d||{},false,function(){r();}); }); }
         function ajaxPost(c,a,d) { return new Promise(function(r) { uw.gpAjax.ajaxPost(c,a,d,false,function(){r();}); }); }
+
+        async function loadFarmData() {
+            await ajaxGet('farm_town_overviews','index');
+            await sleep(1500);
+        }
+
+        function getFarmTowns() {
+            var c = uw.MM.getOnlyCollectionByName('FarmTown');
+            return c && c.models ? c.models : [];
+        }
+
+        function getFarmRelations() {
+            var c = uw.MM.getOnlyCollectionByName('FarmTownPlayerRelation');
+            return c && c.models ? c.models : [];
+        }
+
+        function nextLootSec() {
+            var m = getFarmRelations(), c = {}, i, lt, b = 0, v = 0;
+            for (i = 0; i < m.length; i++) { lt = m[i].attributes.lootable_at; if (lt) c[lt] = (c[lt] || 0) + 1; }
+            for (var t in c) if (c[t] >= v) { b = t; v = c[t]; }
+            var s = b - Math.floor(Date.now() / 1000); return s > 0 ? s : 0;
+        }
 
         async function doClaim() {
             var polis = genList(); if (!polis.length) return;
@@ -91,10 +106,13 @@
                      current_town_id:t.id, booty_researched:booty, diplomacy_researched:'', trade_office:trade };
         }
 
-        function doClaimSingle() {
+        async function doClaimSingle() {
             var polis = genList(); if (!polis.length) { running=false; refresh(); return; }
-            var ft = uw.MM.getOnlyCollectionByName('FarmTown').models;
-            var rl = uw.MM.getOnlyCollectionByName('FarmTownPlayerRelation').models;
+            var ft = getFarmTowns(), rl = getFarmRelations();
+            if (!ft.length || !rl.length) {
+                await loadFarmData();
+                ft = getFarmTowns(); rl = getFarmRelations();
+            }
             var now = Math.floor(Date.now()/1000);
             var opt = modeBase<=300?1:modeBase<=600?2:modeBase<=900?3:4;
             (function loop(i) {
@@ -136,16 +154,16 @@
             running = true; refresh();
             if (cap()) {
                 await doClaim();
-                running = false; refresh();
             } else {
-                doClaimSingle();
+                await doClaimSingle();
             }
+            running = false; refresh();
         }
 
         function setMode(b,t) { modeBase=b; modeBoost=t; refresh(); }
 
         var mh=''; for (var i=0; i<MODES.length; i++) mh+='<span class="farm-btn" data-base="'+MODES[i][1]+'" data-boost="'+MODES[i][2]+'">'+MODES[i][0]+'</span>';
-        var p = $('<div id="farm_panel"><div id="farm_header"><b style="color:#ffcc00">GrepoFarm</b><span style="font-size:11px;color:#888">v1.0.10</span><div id="farm_toggle"></div></div><div id="farm_body">'+mh+'<div id="farm_timer">Arrete</div><div id="farm_cap"></div></div></div>');
+        var p = $('<div id="farm_panel"><div id="farm_header"><b style="color:#ffcc00">GrepoFarm</b><span style="font-size:11px;color:#888">v1.1.0</span><div id="farm_toggle"></div></div><div id="farm_body">'+mh+'<div id="farm_timer">Arrete</div><div id="farm_cap"></div></div></div>');
         $('body').append(p);
         $('#farm_header').click(function(){ active?stop():start(); });
         $('#farm_body').on('click','.farm-btn',function(){ setMode(parseInt($(this).data('base')),parseInt($(this).data('boost'))); });
