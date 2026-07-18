@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         GrepoFarm
-// @version      1.0.9
+// @version      1.0.10
 // @match        http://*.grepolis.com/game/*
 // @match        https://*.grepolis.com/game/*
 // @grant        none
@@ -96,6 +96,7 @@
             var ft = uw.MM.getOnlyCollectionByName('FarmTown').models;
             var rl = uw.MM.getOnlyCollectionByName('FarmTownPlayerRelation').models;
             var now = Math.floor(Date.now()/1000);
+            var opt = modeBase<=300?1:modeBase<=600?2:modeBase<=900?3:4;
             (function loop(i) {
                 if (i>=polis.length) { setTimeout(function(){try{uw.WMap.removeFarmTownLootCooldownIconAndRefreshLootTimers();}catch(e){} running=false; refresh();},500); return; }
                 var t=uw.ITowns.getTown(polis[i]); if(!t){loop(i+1);return;}
@@ -104,7 +105,7 @@
                 for(var ri=0;ri<rl.length;ri++) { if(ft[fi].attributes.id!=rl[ri].attributes.farm_town_id) continue;
                 if(rl[ri].attributes.relation_status!==1) continue;
                 if(rl[ri].attributes.lootable_at!==null&&now<rl[ri].attributes.lootable_at) continue;
-                ajaxPost('frontend_bridge','execute',{model_url:'FarmTownPlayerRelation/'+rl[ri].id,action_name:'claim',arguments:{farm_town_id:ft[fi].attributes.id,type:'resources'},town_id:polis[i]});
+                ajaxPost('frontend_bridge','execute',{model_url:'FarmTownPlayerRelation/'+rl[ri].id,action_name:'claim',arguments:{farm_town_id:ft[fi].attributes.id,type:'resources',option:opt},town_id:polis[i]});
                 found=true; break; } if(found) break; }
                 setTimeout(function(){loop(i+1);},500);
             })(0);
@@ -144,7 +145,7 @@
         function setMode(b,t) { modeBase=b; modeBoost=t; refresh(); }
 
         var mh=''; for (var i=0; i<MODES.length; i++) mh+='<span class="farm-btn" data-base="'+MODES[i][1]+'" data-boost="'+MODES[i][2]+'">'+MODES[i][0]+'</span>';
-        var p = $('<div id="farm_panel"><div id="farm_header"><b style="color:#ffcc00">GrepoFarm</b><span style="font-size:11px;color:#888">v1.0.9</span><div id="farm_toggle"></div></div><div id="farm_body">'+mh+'<div id="farm_timer">Arrete</div><div id="farm_cap"></div></div></div>');
+        var p = $('<div id="farm_panel"><div id="farm_header"><b style="color:#ffcc00">GrepoFarm</b><span style="font-size:11px;color:#888">v1.0.10</span><div id="farm_toggle"></div></div><div id="farm_body">'+mh+'<div id="farm_timer">Arrete</div><div id="farm_cap"></div></div></div>');
         $('body').append(p);
         $('#farm_header').click(function(){ active?stop():start(); });
         $('#farm_body').on('click','.farm-btn',function(){ setMode(parseInt($(this).data('base')),parseInt($(this).data('boost'))); });
