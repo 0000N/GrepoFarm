@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         GrepoFarm
-// @version      1.0.8
+// @version      1.0.9
 // @match        http://*.grepolis.com/game/*
 // @match        https://*.grepolis.com/game/*
 // @grant        none
@@ -20,17 +20,18 @@
 
         $('<style>').text(
             '#farm_panel{position:fixed;top:60px;right:10px;width:280px;background:#12121a;'+
-            'border:1px solid #333;border-radius:5px;z-index:9999;color:#ddd;'+
-            'font:13px Arial;box-shadow:0 0 15px rgba(0,0,0,.7)}'+
+            'border:1px solid #333;border-radius:5px;z-index:2147483647;color:#ddd;'+
+            'pointer-events:auto;font:13px Arial;box-shadow:0 0 15px rgba(0,0,0,.7)}'+
+            '#farm_panel *{pointer-events:auto}'+
             '#farm_header{background:#1a1a2e;padding:8px 10px;border-radius:5px 5px 0 0;'+
-            'display:flex;justify-content:space-between;align-items:center;cursor:pointer}'+
+            'display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none}'+
             '#farm_header.on{background:#2a2a10}'+
             '#farm_body{padding:8px}'+
             '.farm-btn{display:inline-block;padding:4px 8px;margin:2px;background:#25253a;'+
-            'color:#ccc;border:1px solid #3a3a55;border-radius:3px;font-size:11px;cursor:pointer}'+
+            'color:#ccc;border:1px solid #3a3a55;border-radius:3px;font-size:11px;cursor:pointer;user-select:none}'+
             '.farm-btn:hover{background:#303050}'+
             '.farm-btn.on{background:#ffcc00;color:#000;font-weight:bold}'+
-            '#farm_timer{padding:6px 0;font-size:13px;text-align:center}'+
+            '#farm_timer{padding:6px 0;font-size:13px;text-align:center;user-select:none}'+
             '#farm_toggle{width:14px;height:14px;border-radius:50%;background:#555}'+
             '#farm_toggle.on{background:#4caf50;box-shadow:0 0 6px #4caf50}'+
             '#farm_cap{font-size:10px;color:#888;padding:2px 0;text-align:center}'
@@ -143,7 +144,7 @@
         function setMode(b,t) { modeBase=b; modeBoost=t; refresh(); }
 
         var mh=''; for (var i=0; i<MODES.length; i++) mh+='<span class="farm-btn" data-base="'+MODES[i][1]+'" data-boost="'+MODES[i][2]+'">'+MODES[i][0]+'</span>';
-        var p = $('<div id="farm_panel"><div id="farm_header"><b style="color:#ffcc00">GrepoFarm</b><span style="font-size:11px;color:#888">v1.0.8</span><div id="farm_toggle"></div></div><div id="farm_body">'+mh+'<div id="farm_timer">Arrete</div><div id="farm_cap"></div></div></div>');
+        var p = $('<div id="farm_panel"><div id="farm_header"><b style="color:#ffcc00">GrepoFarm</b><span style="font-size:11px;color:#888">v1.0.9</span><div id="farm_toggle"></div></div><div id="farm_body">'+mh+'<div id="farm_timer">Arrete</div><div id="farm_cap"></div></div></div>');
         $('body').append(p);
         $('#farm_header').click(function(){ active?stop():start(); });
         $('#farm_body').on('click','.farm-btn',function(){ setMode(parseInt($(this).data('base')),parseInt($(this).data('boost'))); });
